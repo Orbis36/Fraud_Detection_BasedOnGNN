@@ -33,12 +33,17 @@ class HeteroRGCNLayer(nn.Module):
 class HeteroRGCN(nn.Module):
     def __init__(self, ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size):
         super(HeteroRGCN, self).__init__()
+
         # Use trainable node embeddings as featureless inputs.
+        # 这个矩阵完成Embedding操作，定义完成后使用xavier初始化
+        # 这相当于是原文中对应不同关系的W_r
         embed_dict = {ntype: nn.Parameter(torch.Tensor(num_nodes, in_size))
                       for ntype, num_nodes in ntype_dict.items() if ntype != 'target'}
         for key, embed in embed_dict.items():
             nn.init.xavier_uniform_(embed)
         self.embed = nn.ParameterDict(embed_dict)
+
+        # 一层weight将embedding size -> hidden_size,后面接3层的隐藏层，后再接一个weight将其映射到out-size
         # create layers
         self.layers = nn.ModuleList()
         self.layers.append(HeteroRGCNLayer(embedding_size, hidden_size, etypes))
@@ -49,6 +54,7 @@ class HeteroRGCN(nn.Module):
         # output layer
         self.layers.append(nn.Linear(hidden_size, out_size))
 
+    #pred = model(train_g, features.to(device))
     def forward(self, g, features):
         # get embeddings for all node types. for user node type, use passed in user features
         h_dict = {ntype: emb for ntype, emb in self.embed.items()}

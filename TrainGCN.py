@@ -7,7 +7,7 @@ import time
 
 from torch_geometric.data import Data
 from Preprocess import Preprocessor
-from utils import get_metrics
+from Utils import get_metrics
 from GraphConstruct import Transfer2Graph
 from sklearn.metrics import confusion_matrix
 from Pytorch_model import HeteroRGCN
@@ -149,9 +149,14 @@ def construct_graph(features,edgelists,id_to_node):
     return labels,test_mask,features_normlized,g
 
 def get_model(ntype_dict, etypes, in_feats, n_classes, device):
-    #hidden_size, out_size, n_layers, embedding_size
+    '''
+    :param ntype_dict: 节点的各个属性名称与类别数目，0-1分类数目为2
+    :param etypes: 各个边名称，包括来边回边
+    :param in_feats: 节点有多少个特征
+    :param n_classes: label的分类数目
+    :param device: cuda:0 显卡序号
+    '''
     model = HeteroRGCN(ntype_dict, etypes, in_feats, hidden_size = 16, out_size = n_classes, n_layers = 3 , embedding_size = in_feats)
-    model = model.to(device)
     return model
 
 def get_model_class_predictions(model, g, features, labels, device, threshold=None):
@@ -195,6 +200,7 @@ def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,
              device, n_epochs, thresh, compute_metrics=True):
     """
     A full graph verison of RGCN training
+    train_g here equal to test_g
     """
 
     duration = []
@@ -248,24 +254,26 @@ if __name__ == '__main__':
     features, id_to_node, edgelists = pre_construct_graph(target_node_type, nodes)
     labels,test_mask,features,g = construct_graph(features,edgelists,id_to_node)
 
+
     print("Initializing Model")
     device = torch.device('cuda:0')
     in_feats = features.shape[1]
-    n_classes = 2
-    ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes}
+    n_classes = 2 #label的分类数目
+    ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes} #节点的各个属性名称与类别数目，0-1分类数目为2
+    model = HeteroRGCN(ntype_dict, g.etypes, in_feats, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=in_feats)
 
-    #g.etypes为图g上的相连关系
-    model = get_model(ntype_dict, g.etypes, in_feats, n_classes, device)
-    print("Initialized Model")
+
+    print("Transfer Model To Training Device")
+    model = model.to(device)
     features = features.to(device)
     labels = labels.long().to(device)
     test_mask = test_mask.to(device)
     g = g.to(device)
 
+
+    print("Starting Model training")
     loss = torch.nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=5e-4)
-    print("Starting Model training")
-
     model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
                                               test_mask, device, n_epochs = 100,
                                               thresh = 0, compute_metrics=True)
