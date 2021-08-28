@@ -14,7 +14,7 @@ class Preprocessor():
         self.identity_df = pd.read_csv(os.path.join(data_dir, 'train_identity.csv'))
         self.transaction_df = pd.read_csv(os.path.join(data_dir, 'train_transaction.csv'))
         print('load successfully')
-
+        
         #check
         if not os.path.isdir(self.output_dir):
             os.mkdir(self.output_dir)
