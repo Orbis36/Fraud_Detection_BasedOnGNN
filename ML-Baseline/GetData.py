@@ -62,8 +62,9 @@ class Preprocessor_ML():
         Label = Raw_data['isFraud'].to_numpy()
         Raw_data = Raw_data.drop(columns = 'isFraud').to_numpy()
 
-        #X_train, X_test, y_train, y_test = train_test_split(Raw_data, Label,test_size=0.2, stratify=Label, random_state=1)
+        X_train, X_test, y_train, y_test = train_test_split(Raw_data, Label,test_size=0.2, stratify=Label, random_state=1)
         #X_train, X_test, y_train, y_test = train_test_split(Raw_data, Label,test_size=0.2, random_state=1)
+        '''
         n_train = int(Raw_data.shape[0] * self.train_data_ratio)
 
         X_train = Raw_data[:n_train]
@@ -71,6 +72,8 @@ class Preprocessor_ML():
 
         X_test = Raw_data[n_train:]
         y_test = Label[n_train:]
+        '''
+
 
 
 
