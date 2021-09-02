@@ -32,11 +32,11 @@ if __name__ == '__main__':
               batch_size=1024, virtual_batch_size=128, eval_name=['train','valid'])
 
     preds = model.predict_proba(X_valid)
-    preds = preds[:,1] > Thres
-    cm = metrics.confusion_matrix(y_valid,preds)
+    preds_label = preds[:,1] > Thres
+    cm = metrics.confusion_matrix(y_valid,preds_label)
     print(cm)
     show_metrics(cm)
-    fpr, tpr, threshold = metrics.roc_curve(y_valid, preds)
+    fpr, tpr, threshold = metrics.roc_curve(y_valid, preds[:,1])
     roc_auc = metrics.auc(fpr, tpr)
     plt.figure(figsize=(6, 6))
     plt.title('Prediction of TabNet')
