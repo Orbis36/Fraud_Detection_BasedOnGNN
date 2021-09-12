@@ -42,7 +42,7 @@ def save_roc_curve(fpr, tpr, roc_auc, location):
     f = plt.figure()
     lw = 2
     plt.plot(fpr, tpr, color='darkorange',
-             lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
+             lw=lw, label='RGCN ROC curve (area = %0.4f)' % roc_auc)
     plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])

@@ -19,8 +19,10 @@ def pre_construct_graph(target_node_type,nodes):
     edgelists, id_to_node = {}, {}
     relations = list(filter(lambda x: x.startswith('relation'), os.listdir(GraphConstructor.datapath)))
     for relation in relations:
+        #source_type, sink_type
         edgelist, rev_edgelist, id_to_node, src, dst = GraphConstructor.parse_edgelist(relation, id_to_node,
                                                                                        header=True)
+        #将元组形式的对应关系转化为表的形式
         if src == target_node_type:
             src = 'target'
         if dst == target_node_type:
@@ -42,7 +44,7 @@ def pre_construct_graph(target_node_type,nodes):
     features, new_nodes = GraphConstructor.get_features(id_to_node[target_node_type], nodes)
     print("Read in features for target nodes")
 
-    # add self relation
+    # add self relation（两两交易）
     edgelists[('target', 'self_relation', 'target')] = [(t, t) for t in id_to_node[target_node_type].values()]
 
     return features, id_to_node, edgelists
@@ -160,11 +162,13 @@ def get_model(ntype_dict, etypes, in_feats, n_classes, device):
     return model
 
 def get_model_class_predictions(model, g, features, labels, device, threshold=None):
-    unnormalized_preds = model(g, features.to(device))
-    pred_proba = torch.softmax(unnormalized_preds, dim=-1)
+    unnormalized_preds = model(g, features)
+    #输入是tensor
+    pred_proba = torch.softmax(unnormalized_preds, dim=-1).detach().cpu().numpy()
+    unnormalized_preds = unnormalized_preds.detach().cpu().numpy()
     if not threshold:
-        return unnormalized_preds.argmax(axis=1).detach().numpy(), pred_proba[:,1].detach().numpy()
-    return np.where(pred_proba.detach().numpy() > threshold, 1, 0), pred_proba[:,1].detach().numpy()
+        return unnormalized_preds.argmax(axis=1), pred_proba[:,1]
+    return np.where(pred_proba > threshold, 1, 0), pred_proba[:,1]
 
 def get_f1_score(y_true, y_pred):
     """
@@ -191,8 +195,8 @@ def evaluate(model, g, features, labels, device):
     "Compute the F1 value in a binary classification case"
 
     preds = model(g, features.to(device))
-    preds = torch.argmax(preds, dim = 1).numpy()
-    precision, recall, f1 = get_f1_score(labels, preds)
+    preds = torch.argmax(preds.to('cpu'), dim = 1).numpy()
+    precision, recall, f1 = get_f1_score(labels.to('cpu').numpy(), preds)
 
     return f1
 
@@ -231,7 +235,7 @@ def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,
                                                           threshold=thresh)
 
     if compute_metrics:
-        acc, f1, p, r, roc, pr, ap, cm = get_metrics(class_preds, pred_proba, labels.numpy(), test_mask.numpy(), './')
+        acc, f1, p, r, roc, pr, ap, cm = get_metrics(class_preds, pred_proba, labels.cpu().numpy(), test_mask.cpu().numpy(), './')
         print("Metrics")
         print("""Confusion Matrix:
                                 {}
@@ -275,7 +279,7 @@ if __name__ == '__main__':
     loss = torch.nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=5e-4)
     model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
-                                              test_mask, device, n_epochs = 100,
+                                              test_mask, device, n_epochs = 130,
                                               thresh = 0, compute_metrics=True)
 
     print("Finished Model training")

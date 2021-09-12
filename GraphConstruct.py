@@ -43,12 +43,14 @@ class Transfer2Graph():
 
     def parse_edgelist(self, edges_path, id_to_node, header=False, source_type='user', sink_type='user'):
         """
+            这里是主要更改区域，edgelist和id_to_node决定了后续生成，这里改成一样值，在feature中也应该改。相当于把表格中数据给改了
+            我直接改表格数据不就完了！
             Parse an edgelist path file and return the edges as a list of tuple
             :param edges: path to comma separated file containing bipartite edges with header for edgetype
             :param id_to_node: dictionary containing mapping for node names(id) to dgl node indices, init with empty
 
 
-            :param header: boolean whether or not the file has a header row
+            :param header: boolean whether or not the file has a header row, True here
             :param source_type: type of the source node in the edge. defaults to 'user' if no header
             :param sink_type: type of the sink node in the edge. defaults to 'user' if no header.
             :return: (list, dict) a list containing edges of a single relationship type as tuples and updated id_to_node dict.
@@ -67,7 +69,7 @@ class Transfer2Graph():
                     if sink_type in id_to_node:
                         sink_pointer = max(id_to_node[sink_type].values()) + 1
                     continue
-
+                #_get_node_idx
                 source_node, id_to_node, source_pointer = self._get_node_idx(id_to_node, source_type, source, source_pointer)
                 if source_type == sink_type:
                     sink_node, id_to_node, source_pointer = self._get_node_idx(id_to_node, sink_type, sink, source_pointer)
@@ -80,6 +82,14 @@ class Transfer2Graph():
         return edge_list, rev_edge_list, id_to_node, source_type, sink_type
 
     def _get_node_idx(self,id_to_node, node_type, node_id, ptr):
+        '''
+
+        :param id_to_node: dictionary containing mapping for node names(id) to dgl node indices, init with empty
+        :param node_type: 这个节点的类型
+        :param node_id: 这个节点的ID
+        :param ptr:
+        :return:
+        '''
         if node_type in id_to_node:
             if node_id in id_to_node[node_type]:
                 node_idx = id_to_node[node_type][node_id]

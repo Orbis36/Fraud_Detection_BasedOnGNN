@@ -20,7 +20,7 @@ def save_model(g, model, model_dir, id_to_node):
     for ntype, mapping in id_to_node.items():
 
         # ignore target node
-        if ntype == 'target':
+        if ntype == 'TransactionID':
             continue
 
         # retrieve old and node id list

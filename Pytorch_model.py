@@ -32,6 +32,15 @@ class HeteroRGCNLayer(nn.Module):
 
 class HeteroRGCN(nn.Module):
     def __init__(self, ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size):
+        '''
+        :param ntype_dict: {节点类型：个数}
+        :param etypes:
+        :param in_size:
+        :param hidden_size:
+        :param out_size:
+        :param n_layers:
+        :param embedding_size:
+        '''
         super(HeteroRGCN, self).__init__()
 
         # Use trainable node embeddings as featureless inputs.
