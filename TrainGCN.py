@@ -5,7 +5,7 @@ import torch
 import dgl
 import time
 
-from torch_geometric.data import Data
+
 from Preprocess import Preprocessor
 from Utils import get_metrics
 from GraphConstruct import Transfer2Graph
@@ -251,13 +251,13 @@ if __name__ == '__main__':
     nodes = ['features.csv']
 
     #简单处理原始CSV
-    #Processor = Preprocessor('./IEEE-CIS_Fraud_Detection')
-    #Processor.work()
+    Processor = Preprocessor('./IEEE-CIS_Fraud_Detection')
+    #这里是直接需要获取数据，传统ML需要分割
+    Processor.GNN_Pre(mode = 'R-GCN',ToOC = 'None', Separate = False, Bagging = True)
 
     #真正建图前的准备
     features, id_to_node, edgelists = pre_construct_graph(target_node_type, nodes)
     labels,test_mask,features,g = construct_graph(features,edgelists,id_to_node)
-
 
     print("Initializing Model")
     device = torch.device('cuda:0')
@@ -266,7 +266,6 @@ if __name__ == '__main__':
     ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes} #节点的各个属性名称与类别数目，0-1分类数目为2
     model = HeteroRGCN(ntype_dict, g.etypes, in_feats, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=in_feats)
 
-
     print("Transfer Model To Training Device")
     model = model.to(device)
     features = features.to(device)
@@ -274,14 +273,12 @@ if __name__ == '__main__':
     test_mask = test_mask.to(device)
     g = g.to(device)
 
-
     print("Starting Model training")
     loss = torch.nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=5e-4)
     model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
                                               test_mask, device, n_epochs = 130,
                                               thresh = 0, compute_metrics=True)
-
     print("Finished Model training")
 
     print("Saving model")
