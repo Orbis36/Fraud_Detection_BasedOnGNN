@@ -17,7 +17,7 @@ class HeteroRGCNLayer(nn.Module):
         # The input is a dictionary of node features for each type
         funcs = {}
         for srctype, etype, dsttype in G.canonical_etypes:
-            # Compute W_r * h
+            # Compute W_r * h, 遍历所有关系返回元组形式：('entity', 'relation', 'entity')
             if srctype in feat_dict:
                 Wh = self.weight[etype](feat_dict[srctype])
                 # Save it in graph for message passing
@@ -29,12 +29,11 @@ class HeteroRGCNLayer(nn.Module):
         # return the updated node feature dictionary
         return {ntype: G.nodes[ntype].data['h'] for ntype in G.ntypes if 'h' in G.nodes[ntype].data}
 
-
 class HeteroRGCN(nn.Module):
     def __init__(self, ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size):
         '''
-        :param ntype_dict: {节点类型：个数}
-        :param etypes:
+        :param ntype_dict: {节点类型：种类数目}
+        :param etypes:每个line的数据个数，这里会有问题，如果没有填充0这就是空的
         :param in_size:
         :param hidden_size:
         :param out_size:
@@ -42,12 +41,12 @@ class HeteroRGCN(nn.Module):
         :param embedding_size:
         '''
         super(HeteroRGCN, self).__init__()
-
+        #HeteroRGCN(ntype_dict, g.etypes, in_feats=391, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=in_feats)
         # Use trainable node embeddings as featureless inputs.
         # 这个矩阵完成Embedding操作，定义完成后使用xavier初始化
         # 这相当于是原文中对应不同关系的W_r
-        embed_dict = {ntype: nn.Parameter(torch.Tensor(num_nodes, in_size))
-                      for ntype, num_nodes in ntype_dict.items() if ntype != 'target'}
+        embed_dict = {ntype: nn.Parameter(torch.Tensor(num_nodes_cata, in_size))
+                      for ntype, num_nodes_cata in ntype_dict.items() if ntype != 'target'}
         for key, embed in embed_dict.items():
             nn.init.xavier_uniform_(embed)
         self.embed = nn.ParameterDict(embed_dict)
@@ -59,11 +58,10 @@ class HeteroRGCN(nn.Module):
         # hidden layers
         for i in range(n_layers - 1):
             self.layers.append(HeteroRGCNLayer(hidden_size, hidden_size, etypes))
-
-        # output layer
+        # output layer,映射回2分类
         self.layers.append(nn.Linear(hidden_size, out_size))
 
-    #pred = model(train_g, features.to(device))
+
     def forward(self, g, features):
         # get embeddings for all node types. for user node type, use passed in user features
         h_dict = {ntype: emb for ntype, emb in self.embed.items()}
@@ -77,4 +75,5 @@ class HeteroRGCN(nn.Module):
             h_dict = layer(g, h_dict)
 
         # get user logits
+        # 注意形状，是括号里的矩阵乘layer[-1]
         return self.layers[-1](h_dict['target'])

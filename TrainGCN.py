@@ -13,15 +13,16 @@ from sklearn.metrics import confusion_matrix
 from Pytorch_model import HeteroRGCN
 from SaveModel import save_model
 
-def pre_construct_graph(target_node_type,nodes):
+def pre_construct_graph(target_node_type,nodes_feature_files):
 
     GraphConstructor = Transfer2Graph()
     edgelists, id_to_node = {}, {}
     relations = list(filter(lambda x: x.startswith('relation'), os.listdir(GraphConstructor.datapath)))
+    #该循环读入所有的relation文件，edgelist为临时变量，edgelists中存储所有边信息
+    #edgelists字典的每一个元素为：  keys:(起始节点名称，关系，终了节点名称)  item：[(起始节点编号，对应终了节点编号)，......]
     for relation in relations:
         #source_type, sink_type
-        edgelist, rev_edgelist, id_to_node, src, dst = GraphConstructor.parse_edgelist(relation, id_to_node,
-                                                                                       header=True)
+        edgelist, rev_edgelist, id_to_node, src, dst = GraphConstructor.parse_edgelist(relation, id_to_node, header=True)
         #将元组形式的对应关系转化为表的形式
         if src == target_node_type:
             src = 'target'
@@ -41,10 +42,10 @@ def pre_construct_graph(target_node_type,nodes):
                 print("Read edges for {} from edgelist: {}".format(src + '<>' + dst, relation))
 
     # get features for target nodes
-    features, new_nodes = GraphConstructor.get_features(id_to_node[target_node_type], nodes)
+    features, new_nodes = GraphConstructor.get_features(id_to_node[target_node_type], nodes_feature_files)
     print("Read in features for target nodes")
 
-    # add self relation（两两交易）
+    # add self relation
     edgelists[('target', 'self_relation', 'target')] = [(t, t) for t in id_to_node[target_node_type].values()]
 
     return features, id_to_node, edgelists
@@ -119,23 +120,30 @@ def get_labels(id_to_node, n_nodes, target_node_type, labels_files, masked_nodes
     return labels, train_mask, test_mask
 
 def construct_graph(features,edgelists,id_to_node):
-
+    """
+    :param features:
+    :param edgelists:
+    :param id_to_node:
+    :return:
+    """
     #以边建立异构图并标准化node feature
     g = dgl.heterograph(edgelists)
     node_feature = torch.tensor(features, dtype=torch.float)
     mean = torch.mean(node_feature,dim = 0)
     stdev = torch.sqrt(torch.sum((node_feature - mean) ** 2, dim=0) / node_feature.shape[0])
     features_normlized = (node_feature - mean) / stdev
-    g.nodes['target'].data['features'] = features_normlized
+    #here name is target
+    #g.nodes['target'].data['features'] = features_normlized
 
-    #获取标签与测试集合  mask？
+    #获取标签与测试集合
     n_nodes = g.number_of_nodes('target')
     target_id_to_node = id_to_node[target_node_type]#一个TransactionID与节点ID的对应关系。ex：'2987000': 0, '2987001': 1 ...
-    labels, _, test_mask = get_labels(target_id_to_node,n_nodes,target_node_type,labels_files = './PreprocessedData/tags.csv',
-                                      masked_nodes_files = './PreprocessedData/test.csv')
+    labels, train_mask, test_mask = get_labels(target_id_to_node,n_nodes,target_node_type,labels_files = './PreprocessedData/tags.csv',
+                                               masked_nodes_files = './PreprocessedData/test.csv')
     print("Got labels")
     labels = torch.from_numpy(labels).float()
     test_mask = torch.from_numpy(test_mask).float()
+    train_mask = torch.from_numpy(train_mask).float()
 
     n_nodes = torch.sum(torch.tensor([g.number_of_nodes(n_type) for n_type in g.ntypes]))
     n_edges = torch.sum(torch.tensor([g.number_of_edges(e_type) for e_type in g.etypes]))
@@ -148,7 +156,7 @@ def construct_graph(features,edgelists,id_to_node):
                                                         n_edges,
                                                         features_normlized.shape,
                                                         test_mask.sum()))
-    return labels,test_mask,features_normlized,g
+    return labels,test_mask,train_mask,features_normlized,g
 
 def get_model(ntype_dict, etypes, in_feats, n_classes, device):
     '''
@@ -200,32 +208,25 @@ def evaluate(model, g, features, labels, device):
 
     return f1
 
-def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,
+def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,train_mask,
              device, n_epochs, thresh, compute_metrics=True):
     """
     A full graph verison of RGCN training
     train_g here equal to test_g
     """
 
-    duration = []
     for epoch in range(n_epochs):
         tic = time.time()
-        loss_val = 0.
 
-        pred = model(train_g, features.to(device))
-
-        l = loss(pred, labels)
-
+        pred = model.forward(train_g, features)
+        loss_itr = loss(pred[np.where(train_mask)] , labels[np.where(train_mask)])
         optim.zero_grad()
-        l.backward()
+        loss_itr.backward()
         optim.step()
-
-        loss_val += l
-
-        duration.append(time.time() - tic)
+        #here is no validation set
         metric = evaluate(model, train_g, features, labels, device)
-        print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | f1 {:.4f} ".format(
-                epoch, np.mean(duration), loss_val, metric))
+        print("Epoch {:05d} | Time(s) this iteration {:.4f} | Loss {:.4f} | f1 {:.4f} ".format(
+                epoch, time.time() - tic, loss_itr, metric))
 
     class_preds, pred_proba = get_model_class_predictions(model,
                                                           test_g,
@@ -248,36 +249,40 @@ if __name__ == '__main__':
 
 
     target_node_type = 'TransactionID'
-    nodes = ['features.csv']
+    nodes_features = ['features.csv']
 
-    #简单处理原始CSV
-    Processor = Preprocessor('./IEEE-CIS_Fraud_Detection')
-    #这里是直接需要获取数据，传统ML需要分割
-    Processor.GNN_Pre(mode = 'R-GCN',ToOC = 'None', Separate = False, Bagging = True)
+    """
+    #处理原始CSV,得到的relation是TransactionID和经过OneHotCode等一系列处理之后的Transaction表与Identity表的并联的每一个column
+    生成
+    """
+    #Processor = Preprocessor('./IEEE-CIS_Fraud_Detection', stratify = False)
+    #Processor.GNN_Pre()
 
     #真正建图前的准备
-    features, id_to_node, edgelists = pre_construct_graph(target_node_type, nodes)
-    labels,test_mask,features,g = construct_graph(features,edgelists,id_to_node)
+    features, id_to_node, edgelists = pre_construct_graph(target_node_type, nodes_features)
+    #此时输出feature被norm过
+    labels, test_mask, train_mask, features, g = construct_graph(features,edgelists,id_to_node)
 
     print("Initializing Model")
     device = torch.device('cuda:0')
     in_feats = features.shape[1]
     n_classes = 2 #label的分类数目
     ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes} #节点的各个属性名称与类别数目，0-1分类数目为2
-    model = HeteroRGCN(ntype_dict, g.etypes, in_feats, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=in_feats)
+    model = HeteroRGCN(ntype_dict, g.etypes, 64, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=64)
 
     print("Transfer Model To Training Device")
     model = model.to(device)
     features = features.to(device)
     labels = labels.long().to(device)
     test_mask = test_mask.to(device)
+    train_mask = train_mask.to(device)
     g = g.to(device)
 
     print("Starting Model training")
     loss = torch.nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=5e-4)
     model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
-                                              test_mask, device, n_epochs = 130,
+                                              test_mask, train_mask, device, n_epochs = 130,
                                               thresh = 0, compute_metrics=True)
     print("Finished Model training")
 

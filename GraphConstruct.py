@@ -3,13 +3,13 @@ import os
 
 
 class Transfer2Graph():
+
     def __init__(self):
         self.nodetype = 'TransactionID'
         self.datapath = './PreprocessedData'
 
     def get_features(self, id_to_node, node_feature_files):
         """
-
         :param id_to_node: dictionary mapping node names(id) to dgl node idx
         :param node_features: path to file containing node features
         :return: (np.ndarray, list) node feature matrix in order and new nodes not yet in the graph
