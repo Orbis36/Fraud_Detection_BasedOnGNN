@@ -30,7 +30,7 @@ def save_model(g, model, model_dir, id_to_node):
             node_id_list.append(node_id)
 
         # retrieve embeddings of a node type
-        node_feats = model.embed[ntype].detach().numpy()
+        node_feats = model.embed[ntype].detach().cpu().numpy()
 
         # get the number of nodes and the dimension of features
         num_nodes = node_feats.shape[0]

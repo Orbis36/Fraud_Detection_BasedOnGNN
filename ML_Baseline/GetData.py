@@ -67,7 +67,7 @@ class Preprocessor_ML():
             return
 
 
-        #在GNN中不应该对缺失值做填充
+        # 在GNN中不应该对缺失值做填充
         Raw_data = Raw_data.fillna(-1)
         Label = Raw_data['isFraud'].to_numpy()
         Raw_data = Raw_data.drop(columns = 'isFraud').to_numpy()

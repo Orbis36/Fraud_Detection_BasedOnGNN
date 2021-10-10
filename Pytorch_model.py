@@ -5,16 +5,18 @@ import torch.nn.functional as F
 from dgl.nn.pytorch import GraphConv, GATConv, SAGEConv
 import dgl.function as fn
 
+
 class HeteroRGCNLayer(nn.Module):
     def __init__(self, in_size, out_size, etypes):
         super(HeteroRGCNLayer, self).__init__()
         # W_r for each relation
         self.weight = nn.ModuleDict({
-                name: nn.Linear(in_size, out_size) for name in etypes
-            })
+            name: nn.Linear(in_size, out_size) for name in etypes
+        })
 
     def forward(self, G, feat_dict):
         # The input is a dictionary of node features for each type
+        # 这里feat_dict就是feature
         funcs = {}
         for srctype, etype, dsttype in G.canonical_etypes:
             # Compute W_r * h, 遍历所有关系返回元组形式：('entity', 'relation', 'entity')
@@ -29,6 +31,7 @@ class HeteroRGCNLayer(nn.Module):
         # return the updated node feature dictionary
         return {ntype: G.nodes[ntype].data['h'] for ntype in G.ntypes if 'h' in G.nodes[ntype].data}
 
+
 class HeteroRGCN(nn.Module):
     def __init__(self, ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size):
         '''
@@ -41,10 +44,8 @@ class HeteroRGCN(nn.Module):
         :param embedding_size:
         '''
         super(HeteroRGCN, self).__init__()
-        #HeteroRGCN(ntype_dict, g.etypes, in_feats=391, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=in_feats)
-        # Use trainable node embeddings as featureless inputs.
-        # 这个矩阵完成Embedding操作，定义完成后使用xavier初始化
-        # 这相当于是原文中对应不同关系的W_r
+        # 这个矩阵完成Embedding操作，定义完成后使用xavier初始化 这相当于是原文中对应不同关系的W_r
+        # 只要不是traget节点，均建立这样一个就建立一个矩阵
         embed_dict = {ntype: nn.Parameter(torch.Tensor(num_nodes_cata, in_size))
                       for ntype, num_nodes_cata in ntype_dict.items() if ntype != 'target'}
         for key, embed in embed_dict.items():
@@ -61,14 +62,14 @@ class HeteroRGCN(nn.Module):
         # output layer,映射回2分类
         self.layers.append(nn.Linear(hidden_size, out_size))
 
-
     def forward(self, g, features):
-        # get embeddings for all node types. for user node type, use passed in user features
+        # 这里先做一个转换，features到h_dict的target元素，其余元素为
         h_dict = {ntype: emb for ntype, emb in self.embed.items()}
         # feat_para = torch.tensor(features)
         h_dict['target'] = features
 
         # pass through all layers
+
         for i, layer in enumerate(self.layers[:-1]):
             if i != 0:
                 h_dict = {k: F.leaky_relu(h) for k, h in h_dict.items()}

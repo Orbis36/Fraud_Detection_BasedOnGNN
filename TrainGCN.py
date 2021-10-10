@@ -5,7 +5,6 @@ import torch
 import dgl
 import time
 
-
 from Preprocess import Preprocessor
 from Utils import get_metrics
 from GraphConstruct import Transfer2Graph
@@ -13,17 +12,18 @@ from sklearn.metrics import confusion_matrix
 from Pytorch_model import HeteroRGCN
 from SaveModel import save_model
 
-def pre_construct_graph(target_node_type,nodes_feature_files):
 
+def pre_construct_graph(target_node_type, nodes_feature_files):
     GraphConstructor = Transfer2Graph()
     edgelists, id_to_node = {}, {}
     relations = list(filter(lambda x: x.startswith('relation'), os.listdir(GraphConstructor.datapath)))
-    #该循环读入所有的relation文件，edgelist为临时变量，edgelists中存储所有边信息
-    #edgelists字典的每一个元素为：  keys:(起始节点名称，关系，终了节点名称)  item：[(起始节点编号，对应终了节点编号)，......]
+    # 该循环读入所有的relation文件，edgelist为临时变量，edgelists中存储所有边信息
+    # edgelists字典的每一个元素为：  keys:(起始节点名称，关系，终了节点名称)  item：[(起始节点编号，对应终了节点编号)，......]
     for relation in relations:
-        #source_type, sink_type
-        edgelist, rev_edgelist, id_to_node, src, dst = GraphConstructor.parse_edgelist(relation, id_to_node, header=True)
-        #将元组形式的对应关系转化为表的形式
+        # source_type, sink_type
+        edgelist, rev_edgelist, id_to_node, src, dst = GraphConstructor.parse_edgelist(relation, id_to_node,
+                                                                                       header=True)
+        # 将元组形式的对应关系转化为表的形式
         if src == target_node_type:
             src = 'target'
         if dst == target_node_type:
@@ -49,6 +49,7 @@ def pre_construct_graph(target_node_type,nodes_feature_files):
     edgelists[('target', 'self_relation', 'target')] = [(t, t) for t in id_to_node[target_node_type].values()]
 
     return features, id_to_node, edgelists
+
 
 def get_labels(id_to_node, n_nodes, target_node_type, labels_files, masked_nodes_files, additional_mask_rate=0):
     """
@@ -88,11 +89,11 @@ def get_labels(id_to_node, n_nodes, target_node_type, labels_files, masked_nodes
         """
         train_mask = np.ones(num_nodes)
         test_mask = np.zeros(num_nodes)
-        #只要在train中出现过的标记为masked
+        # 只要在train中出现过的标记为masked
         for node_id in masked_nodes:
             train_mask[id_to_node[node_id]] = 0
             test_mask[id_to_node[node_id]] = 1
-        #是否需要额外mask
+        # 是否需要额外mask
         if additional_mask_rate and additional_mask_rate < 1:
             unmasked = np.array([idx for idx in range(num_nodes) if node_to_id[idx] not in masked_nodes])
             yet_unmasked = np.random.permutation(unmasked)[:int(additional_mask_rate * num_nodes)]
@@ -101,45 +102,48 @@ def get_labels(id_to_node, n_nodes, target_node_type, labels_files, masked_nodes
 
     node_to_id = {v: k for k, v in id_to_node.items()}
 
-    #为了在多标签下也适用，这里使用concat，但在这里只有isFraud这一个标签
-    #user_to_label 是TransactionID与label的对应关系。ex：  [2987000              0] [2987001              0]
+    # 为了在多标签下也适用，这里使用concat，但在这里只有isFraud这一个标签
+    # user_to_label 是TransactionID与label的对应关系。ex：  [2987000              0] [2987001              0]
     labels_df_from_files = pd.read_csv(labels_files)
     if not isinstance(labels_df_from_files, list):
         labels_df_from_files = [labels_df_from_files]
     user_to_label = pd.concat(labels_df_from_files, ignore_index=True).set_index(target_node_type)
 
-    #为了针对semi-supervised情况这样写
-    #取user_to_label中在node_to_id中的line，即有transactionID和label的记录（其实在这里是废话，这个数据集每个TransactionID都有label）
+    # 为了针对semi-supervised情况这样写
+    # 取user_to_label中在node_to_id中的line，即有transactionID和label的记录（其实在这里是废话，这个数据集每个TransactionID都有label）
     labels = user_to_label.loc[map(int, pd.Series(node_to_id)[np.arange(n_nodes)].values)].values.flatten()
 
-    #读取test集
+    # 读取test集
     masked_nodes = read_masked_nodes([masked_nodes_files])
 
     train_mask, test_mask = _get_mask(id_to_node, node_to_id, n_nodes, masked_nodes,
                                       additional_mask_rate=additional_mask_rate)
     return labels, train_mask, test_mask
 
-def construct_graph(features,edgelists,id_to_node):
+
+def construct_graph(features, edgelists, id_to_node):
     """
     :param features:
     :param edgelists:
     :param id_to_node:
     :return:
     """
-    #以边建立异构图并标准化node feature
+    print("enter_cg")
+    # 以边建立异构图并标准化node feature
     g = dgl.heterograph(edgelists)
     node_feature = torch.tensor(features, dtype=torch.float)
-    mean = torch.mean(node_feature,dim = 0)
+    mean = torch.mean(node_feature, dim=0)
     stdev = torch.sqrt(torch.sum((node_feature - mean) ** 2, dim=0) / node_feature.shape[0])
     features_normlized = (node_feature - mean) / stdev
-    #here name is target
-    #g.nodes['target'].data['features'] = features_normlized
+    # here name is target
+    # g.nodes['target'].data['features'] = features_normlized
 
-    #获取标签与测试集合
+    # 获取标签与测试集合
     n_nodes = g.number_of_nodes('target')
-    target_id_to_node = id_to_node[target_node_type]#一个TransactionID与节点ID的对应关系。ex：'2987000': 0, '2987001': 1 ...
-    labels, train_mask, test_mask = get_labels(target_id_to_node,n_nodes,target_node_type,labels_files = './PreprocessedData/tags.csv',
-                                               masked_nodes_files = './PreprocessedData/test.csv')
+    target_id_to_node = id_to_node[target_node_type]  # 一个TransactionID与节点ID的对应关系。ex：'2987000': 0, '2987001': 1 ...
+    labels, train_mask, test_mask = get_labels(target_id_to_node, n_nodes, target_node_type,
+                                               labels_files='./PreprocessedData/tags.csv',
+                                               masked_nodes_files='./PreprocessedData/test.csv')
     print("Got labels")
     labels = torch.from_numpy(labels).float()
     test_mask = torch.from_numpy(test_mask).float()
@@ -156,7 +160,8 @@ def construct_graph(features,edgelists,id_to_node):
                                                         n_edges,
                                                         features_normlized.shape,
                                                         test_mask.sum()))
-    return labels,test_mask,train_mask,features_normlized,g
+    return labels, test_mask, train_mask, features_normlized, g
+
 
 def get_model(ntype_dict, etypes, in_feats, n_classes, device):
     '''
@@ -166,17 +171,20 @@ def get_model(ntype_dict, etypes, in_feats, n_classes, device):
     :param n_classes: label的分类数目
     :param device: cuda:0 显卡序号
     '''
-    model = HeteroRGCN(ntype_dict, etypes, in_feats, hidden_size = 16, out_size = n_classes, n_layers = 3 , embedding_size = in_feats)
+    model = HeteroRGCN(ntype_dict, etypes, in_feats, hidden_size=16, out_size=n_classes, n_layers=3,
+                       embedding_size=in_feats)
     return model
+
 
 def get_model_class_predictions(model, g, features, labels, device, threshold=None):
     unnormalized_preds = model(g, features)
-    #输入是tensor
+    # 输入是tensor
     pred_proba = torch.softmax(unnormalized_preds, dim=-1).detach().cpu().numpy()
     unnormalized_preds = unnormalized_preds.detach().cpu().numpy()
     if not threshold:
-        return unnormalized_preds.argmax(axis=1), pred_proba[:,1]
-    return np.where(pred_proba > threshold, 1, 0), pred_proba[:,1]
+        return unnormalized_preds.argmax(axis=1), pred_proba[:, 1]
+    return np.where(pred_proba > threshold, 1, 0), pred_proba[:, 1]
+
 
 def get_f1_score(y_true, y_pred):
     """
@@ -193,22 +201,24 @@ def get_f1_score(y_true, y_pred):
     cf_m = confusion_matrix(y_true, y_pred)
     # print(cf_m)
 
-    precision = cf_m[1,1] / (cf_m[1,1] + cf_m[0,1] + 10e-5)
-    recall = cf_m[1,1] / (cf_m[1,1] + cf_m[1,0])
+    precision = cf_m[1, 1] / (cf_m[1, 1] + cf_m[0, 1] + 10e-5)
+    recall = cf_m[1, 1] / (cf_m[1, 1] + cf_m[1, 0])
     f1 = 2 * (precision * recall) / (precision + recall + 10e-5)
 
     return precision, recall, f1
+
 
 def evaluate(model, g, features, labels, device):
     "Compute the F1 value in a binary classification case"
 
     preds = model(g, features.to(device))
-    preds = torch.argmax(preds.to('cpu'), dim = 1).numpy()
+    preds = torch.argmax(preds.to('cpu'), dim=1).numpy()
     precision, recall, f1 = get_f1_score(labels.to('cpu').numpy(), preds)
 
     return f1
 
-def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,train_mask,
+
+def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask, train_mask,
              device, n_epochs, thresh, compute_metrics=True):
     """
     A full graph verison of RGCN training
@@ -217,16 +227,16 @@ def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,tr
 
     for epoch in range(n_epochs):
         tic = time.time()
-
         pred = model.forward(train_g, features)
-        loss_itr = loss(pred[np.where(train_mask)] , labels[np.where(train_mask)])
+        loss_itr = loss(pred, labels)
+
         optim.zero_grad()
         loss_itr.backward()
         optim.step()
-        #here is no validation set
+        # here is no validation set
         metric = evaluate(model, train_g, features, labels, device)
         print("Epoch {:05d} | Time(s) this iteration {:.4f} | Loss {:.4f} | f1 {:.4f} ".format(
-                epoch, time.time() - tic, loss_itr, metric))
+            epoch, time.time() - tic, loss_itr, metric))
 
     class_preds, pred_proba = get_model_class_predictions(model,
                                                           test_g,
@@ -236,7 +246,8 @@ def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,tr
                                                           threshold=thresh)
 
     if compute_metrics:
-        acc, f1, p, r, roc, pr, ap, cm = get_metrics(class_preds, pred_proba, labels.cpu().numpy(), test_mask.cpu().numpy(), './')
+        acc, f1, p, r, roc, pr, ap, cm = get_metrics(class_preds, pred_proba, labels.cpu().numpy(),
+                                                     test_mask.cpu().numpy(), './')
         print("Metrics")
         print("""Confusion Matrix:
                                 {}
@@ -245,9 +256,8 @@ def train_fg(model, optim, loss, features, labels, train_g, test_g, test_mask,tr
 
     return model, class_preds, pred_proba
 
+
 if __name__ == '__main__':
-
-
     target_node_type = 'TransactionID'
     nodes_features = ['features.csv']
 
@@ -255,41 +265,37 @@ if __name__ == '__main__':
     #处理原始CSV,得到的relation是TransactionID和经过OneHotCode等一系列处理之后的Transaction表与Identity表的并联的每一个column
     生成
     """
-    #Processor = Preprocessor('./IEEE-CIS_Fraud_Detection', stratify = False)
-    #Processor.GNN_Pre()
+    # Processor = Preprocessor('./IEEE-CIS_Fraud_Detection', stratify = True)
+    # Processor.GNN_Pre()
 
-    #真正建图前的准备
+    # 真正建图前的准备
     features, id_to_node, edgelists = pre_construct_graph(target_node_type, nodes_features)
-    #此时输出feature被norm过
-    labels, test_mask, train_mask, features, g = construct_graph(features,edgelists,id_to_node)
+    # 此时输出feature被norm过
+    labels, test_mask, train_mask, features, g = construct_graph(features, edgelists, id_to_node)
 
     print("Initializing Model")
     device = torch.device('cuda:0')
     in_feats = features.shape[1]
-    n_classes = 2 #label的分类数目
-    ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes} #节点的各个属性名称与类别数目，0-1分类数目为2
-    model = HeteroRGCN(ntype_dict, g.etypes, 64, hidden_size=16, out_size=n_classes, n_layers=3, embedding_size=64)
+    n_classes = 2  # label的分类数目
+    ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes}  # 节点的各个属性名称与类别数目，0-1分类数目为2
+    model = HeteroRGCN(ntype_dict, g.etypes, in_feats, hidden_size=16, out_size=n_classes,
+                       n_layers=3, embedding_size=in_feats)
 
     print("Transfer Model To Training Device")
+
     model = model.to(device)
     features = features.to(device)
     labels = labels.long().to(device)
-    test_mask = test_mask.to(device)
-    train_mask = train_mask.to(device)
     g = g.to(device)
 
     print("Starting Model training")
     loss = torch.nn.CrossEntropyLoss()
     optim = torch.optim.Adam(model.parameters(), lr=1e-2, weight_decay=5e-4)
     model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
-                                              test_mask, train_mask, device, n_epochs = 130,
-                                              thresh = 0, compute_metrics=True)
+                                              test_mask, train_mask, device, n_epochs=100,
+                                              thresh=0, compute_metrics=True)
     print("Finished Model training")
 
     print("Saving model")
     save_model(g, model, './Model', id_to_node)
     print("Model and metadata saved")
-
-
-
-
